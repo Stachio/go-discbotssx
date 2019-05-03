@@ -3,10 +3,10 @@ package discbotssx
 import (
 	"fmt"
 	"log"
-	"printssx"
 	"strings"
 	"time"
 
+	"github.com/Stachio/go-printssx"
 	"github.com/bwmarrin/discordgo"
 )
 
