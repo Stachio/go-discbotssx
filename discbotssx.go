@@ -41,7 +41,6 @@ type Bot struct {
 
 type Bundle struct {
 	bot     *Bot
-	Args    []string
 	Session *discordgo.Session
 	Message *discordgo.MessageCreate
 }
@@ -91,8 +90,7 @@ func (bundle *Bundle) RunCommand(line string) {
 	cmd, ok := bundle.bot.commandMap[args[0]]
 	if ok {
 		Printer.Printf(printssx.Subtle, "START cmd:%s args %v\n", args[0], args[1:])
-		bundle.Args = args
-		result := cmd(bundle, args[1:])
+		result := cmd(bundle, args)
 		bundle.Result(args, result)
 		//outputs := bundle.commandPump(cmd, args[1:])
 		//for _, output := range outputs {
