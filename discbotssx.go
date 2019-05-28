@@ -34,6 +34,7 @@ func NewOutput(result Result, details string) (output *Output) {
 
 // Bot - Discord bot object
 type Bot struct {
+	owner      string
 	session    *discordgo.Session
 	commandMap map[string]Command
 	alive      bool
@@ -46,7 +47,7 @@ type Bundle struct {
 }
 
 // Command - Generic type to shorten func declaration
-type Command func(*Bundle, []string) Result
+type Command func(*Bundle, []string) (Result, error)
 
 /*
 func (bundle *Bundle) commandPump(cmd []Command, args []string) (out []Output) {
@@ -61,7 +62,8 @@ func (bundle *Bundle) commandPump(cmd []Command, args []string) (out []Output) {
 }
 */
 
-func (bundle *Bundle) Result(args []string, result Result) {
+//
+func (bundle *Bundle) result(args []string, result Result, err error) {
 	var noise printssx.Noise
 	var status string
 	switch result {
@@ -74,6 +76,8 @@ func (bundle *Bundle) Result(args []string, result Result) {
 	case Error:
 		noise = printssx.Subtle
 		status = "ERROR"
+		// Send an error report to the owner
+		bundle.Session.ChannelMessageSend(bundle.bot.owner, fmt.Sprintf("Figure this error out bud \"%s\"", err.Error()))
 	case Fatal:
 		noise = printssx.Subtle
 		status = "FATAL"
@@ -90,8 +94,8 @@ func (bundle *Bundle) RunCommand(line string) {
 	cmd, ok := bundle.bot.commandMap[args[0]]
 	if ok {
 		Printer.Printf(printssx.Subtle, "START cmd:%s args %v\n", args[0], args[1:])
-		result := cmd(bundle, args)
-		bundle.Result(args, result)
+		result, err := cmd(bundle, args)
+		bundle.result(args, result, err)
 		//outputs := bundle.commandPump(cmd, args[1:])
 		//for _, output := range outputs {
 		//output.Process(bot)
@@ -105,8 +109,8 @@ func (bot *Bot) messageHandler(bwSession *discordgo.Session, bwMessage *discordg
 }
 
 // New - Initializes the bot type with a discord session bound to "token"
-func New(token string) (bot *Bot, err error) {
-	bot = &Bot{alive: false, commandMap: make(map[string]Command)}
+func New(token, owner string) (bot *Bot, err error) {
+	bot = &Bot{owner: owner, alive: false, commandMap: make(map[string]Command)}
 
 	session, err := discordgo.New(fmt.Sprintf("Bot %s", token))
 	if err != nil {
