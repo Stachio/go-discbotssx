@@ -77,8 +77,15 @@ func (bundle *Bundle) result(args []string, result Result, err error) {
 		noise = printssx.Subtle
 		status = "ERROR"
 		// Send an error report to the owner
-		channel, err := bundle.Session.UserChannelCreate(bundle.bot.owner)
-		bundle.Session.ChannelMessageSend(channel.ID, fmt.Sprintf("Figure this error out bud \"%s\"", err.Error()))
+		// Don't use err in the return ya idgit
+		channel, erro := bundle.Session.UserChannelCreate(bundle.bot.owner)
+		if erro != nil {
+			panic(erro)
+		}
+		_, erro = bundle.Session.ChannelMessageSend(channel.ID, fmt.Sprintf("Figure this error out bud \"%s\"", err.Error()))
+		if erro != nil {
+			panic(erro)
+		}
 	case Fatal:
 		noise = printssx.Subtle
 		status = "FATAL"
@@ -148,6 +155,7 @@ func (bot *Bot) Run() (err error) {
 	<-sc
 
 	Printer.Println(printssx.Subtle, "Shutting down discord bot...")
+	channel, err = bot.session.UserChannelCreate(bot.owner)
 	_, err = bot.session.ChannelMessageSend(channel.ID, "Bot stopped")
 	bot.session.Close()
 	return
