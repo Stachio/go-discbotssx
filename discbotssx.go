@@ -19,9 +19,10 @@ type Result int
 
 const Success Result = 0
 const Warning Result = 1
-const Error Result = 3
-const Fatal Result = 4
-const Exit Result = 5
+
+//const Error Result = 3
+const Fatal Result = 3
+const Exit Result = 4
 
 type Output struct {
 	result  Result
@@ -44,6 +45,21 @@ type Bundle struct {
 	bot     *Bot
 	Session *discordgo.Session
 	Message *discordgo.MessageCreate
+}
+
+// Error - Package defined error struct to house sql statements
+type Error struct {
+	operation string
+	goerr     error
+}
+
+func (err *Error) Error() string {
+	return "Operation: " + err.operation + "\nError: " + err.goerr.Error()
+}
+
+// NewError - returns custom error type
+func NewError(operation string, err error) *Error {
+	return &Error{operation: operation, goerr: err}
 }
 
 // Command - Generic type to shorten func declaration
@@ -73,7 +89,16 @@ func (bundle *Bundle) result(args []string, result Result, err error) {
 	case Warning:
 		noise = printssx.Moderate
 		status = "WARNING"
-	case Error:
+	case Fatal:
+		noise = printssx.Subtle
+		status = "FATAL"
+	case Exit:
+		noise = printssx.Subtle
+		status = "EXIT"
+		bundle.bot.alive = false
+	}
+
+	if err != nil {
 		noise = printssx.Subtle
 		status = "ERROR"
 		// Send an error report to the owner
@@ -86,14 +111,12 @@ func (bundle *Bundle) result(args []string, result Result, err error) {
 		if erro != nil {
 			panic(erro)
 		}
-	case Fatal:
-		noise = printssx.Subtle
-		status = "FATAL"
-	case Exit:
-		noise = printssx.Subtle
-		status = "EXIT"
-		bundle.bot.alive = false
+		_, erro = bundle.Session.ChannelMessageSend(bundle.Message.ChannelID, (bundle.Message.Author.Mention() + " that didn't go as planned"))
+		if erro != nil {
+			panic(erro)
+		}
 	}
+
 	Printer.Printf(noise, "FINISH cmd:%s args:%v result:%s", args[0], args[1:], status)
 }
 
