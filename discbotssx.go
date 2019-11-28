@@ -3,10 +3,12 @@ package discbotssx
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/Stachio/go-printssx"
 	"github.com/bwmarrin/discordgo"
@@ -149,6 +151,8 @@ func New(token, owner string) (bot *Bot, err error) {
 	}
 
 	session.AddHandler(bot.messageHandler)
+	// Increased session client timeout from 20 to 60 seconds
+	session.Client = &http.Client{Timeout: (60 * time.Second)}
 	bot.session = session
 	Printer.Println(printssx.Moderate, "Discord bot created")
 	return
