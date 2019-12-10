@@ -37,10 +37,11 @@ func NewOutput(result Result, details string) (output *Output) {
 
 // Bot - Discord bot object
 type Bot struct {
-	owner      string
-	session    *discordgo.Session
-	commandMap map[string]Command
-	alive      bool
+	owner        string
+	session      *discordgo.Session
+	commandMap   map[string]Command
+	cancelations []Cancel
+	alive        bool
 }
 
 type Bundle struct {
@@ -136,8 +137,19 @@ func (bundle *Bundle) RunCommand(line string) {
 	}
 }
 
+type Cancel func(*Bundle) bool
+
+func (bot *Bot) AddCancelation(cancel Cancel) {
+	bot.cancelations = append(bot.cancelations, cancel)
+}
+
 func (bot *Bot) messageHandler(bwSession *discordgo.Session, bwMessage *discordgo.MessageCreate) {
 	bundle := &Bundle{bot: bot, Session: bwSession, Message: bwMessage}
+	for _, cancel := range bot.cancelations {
+		if cancel(bundle) {
+			return
+		}
+	}
 	bundle.RunCommand(bwMessage.Message.Content)
 }
 
