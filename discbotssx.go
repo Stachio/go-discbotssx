@@ -6,9 +6,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
+
+	logger "github.com/Stachio/go-loggerssx"
 
 	"github.com/Stachio/go-printssx"
 	"github.com/bwmarrin/discordgo"
@@ -37,17 +40,35 @@ func NewOutput(result Result, details string) (output *Output) {
 
 // Bot - Discord bot object
 type Bot struct {
+	logPath      string
 	owner        string
+	id           string
 	session      *discordgo.Session
 	commandMap   map[string]Command
+	inlineMap    map[string]Command
+	customMap    map[string]Command
 	cancelations []Cancel
 	alive        bool
 }
 
 type Bundle struct {
-	bot     *Bot
-	Session *discordgo.Session
-	Message *discordgo.MessageCreate
+	bot      *Bot
+	Log      *log.Logger
+	session  *discordgo.Session
+	message  *discordgo.MessageCreate
+	cmdIndex int
+}
+
+func (bundle *Bundle) Session() *discordgo.Session {
+	return bundle.session
+}
+
+func (bundle *Bundle) Message() *discordgo.MessageCreate {
+	return bundle.message
+}
+
+func (bundle *Bundle) CmdIndex() int {
+	return bundle.cmdIndex
 }
 
 // Error - Package defined error struct to house sql statements
@@ -83,51 +104,83 @@ func (bundle *Bundle) commandPump(cmd []Command, args []string) (out []Output) {
 
 //
 func (bundle *Bundle) result(args []string, result Result, err error) {
-	var noise printssx.Noise
+	//var noise printssx.Noise
 	var status string
 	switch result {
 	case Success:
-		noise = printssx.Loud
+		//noise = printssx.Loud
 		status = "SUCCESS"
 	case Warning:
-		noise = printssx.Moderate
+		//noise = printssx.Moderate
 		status = "WARNING"
 	case Fatal:
-		noise = printssx.Subtle
+		//noise = printssx.Subtle
 		status = "FATAL"
 	case Exit:
-		noise = printssx.Subtle
+		//noise = printssx.Subtle
 		status = "EXIT"
 		bundle.bot.alive = false
 	}
 
 	if err != nil {
-		noise = printssx.Subtle
+		//noise = printssx.Subtle
 		status = "ERROR"
 		// Send an error report to the owner
 		// Don't use err in the return ya idgit
-		channel, erro := bundle.Session.UserChannelCreate(bundle.bot.owner)
+		channel, erro := bundle.session.UserChannelCreate(bundle.bot.owner)
 		if erro != nil {
 			panic(erro)
 		}
-		_, erro = bundle.Session.ChannelMessageSend(channel.ID, fmt.Sprintf("Figure this error out bud \"%s\"", err.Error()))
+		_, erro = bundle.session.ChannelMessageSend(channel.ID, fmt.Sprintf("Figure this error out bud \"%s\"", err.Error()))
 		if erro != nil {
 			panic(erro)
 		}
-		_, erro = bundle.Session.ChannelMessageSend(bundle.Message.ChannelID, (bundle.Message.Author.Mention() + " that didn't go as planned"))
+		_, erro = bundle.session.ChannelMessageSend(bundle.message.ChannelID, (bundle.message.Author.Mention() + " that didn't go as planned"))
 		if erro != nil {
 			panic(erro)
 		}
 	}
 
-	Printer.Printf(noise, "FINISH cmd:%s args:%v result:%s", args[0], args[1:], status)
+	bundle.Log.Printf("FINISH cmd:%s line:%v result:%s", args[bundle.cmdIndex], args, status)
 }
 
-func (bundle *Bundle) RunCommand(line string) {
-	args := strings.Split(line, " ")
+func (bundle *Bundle) RunCustoms(args []string) {
+	for name, cmd := range bundle.bot.customMap {
+		bundle.Log.Printf("START custom cmd:%s args %v\n", name, args)
+		result, err := cmd(bundle, args)
+		bundle.result(args, result, err)
+	}
+}
+
+func (bundle *Bundle) RunInlines(args []string) {
+	var indie int
+	var arg string
+	var cmd Command
+	var ok bool
+
+	for indie, arg = range args {
+		if cmd, ok = bundle.bot.inlineMap[arg]; ok {
+			bundle.cmdIndex = indie
+			break
+		}
+	}
+
+	if ok {
+		bundle.Log.Printf("START inline cmd:%s line %v\n", args[indie], args)
+		result, err := cmd(bundle, args)
+		bundle.result(args, result, err)
+	}
+}
+
+func (bundle *Bundle) RunCommand(args []string) {
+	if len(args) == 0 {
+		bundle.Log.Print("START no cmd available")
+		return
+	}
+
 	cmd, ok := bundle.bot.commandMap[args[0]]
 	if ok {
-		Printer.Printf(printssx.Subtle, "START cmd:%s args %v\n", args[0], args[1:])
+		bundle.Log.Printf("START cmd:%s args %v\n", args[0], args[1:])
 		result, err := cmd(bundle, args)
 		bundle.result(args, result, err)
 		//outputs := bundle.commandPump(cmd, args[1:])
@@ -144,18 +197,61 @@ func (bot *Bot) AddCancelation(cancel Cancel) {
 }
 
 func (bot *Bot) messageHandler(bwSession *discordgo.Session, bwMessage *discordgo.MessageCreate) {
-	bundle := &Bundle{bot: bot, Session: bwSession, Message: bwMessage}
+	//guildID := bwMessage.GuildID
+	authorID := bwMessage.Author.ID
+	//channelID := bwMessage.ChannelID
+	messageID := bwMessage.Message.ID
+
+	if authorID == bot.id {
+		// Message originated from current bot
+		return
+	}
+
+	uniqueID := time.Now().Format("2006-01-02T15-04-05") + " " + messageID //strings.Join([]string{channelID, messageID}, " ")
+	args := strings.Split(bwMessage.Message.Content, " ")
+
+	newArgs := make([]string, 0, len(args))
+	for _, arg := range args {
+		if len(arg) > 0 {
+			newArgs = append(newArgs, arg)
+		}
+	}
+
+	Printer.Println(printssx.Subtle, "[START] message ID", uniqueID, newArgs)
+	fileName := uniqueID + ".log"
+	logPath := filepath.Join(bot.logPath, fileName)
+	fileLogger, err := logger.New(logPath, false)
+	fmt.Println(logPath)
+	if err != nil {
+		panic(err)
+	}
+	logger := log.New(fileLogger, "", log.Flags())
+
+	bundle := &Bundle{
+		bot:     bot,
+		Log:     logger,
+		session: bwSession,
+		message: bwMessage,
+	}
 	for _, cancel := range bot.cancelations {
 		if cancel(bundle) {
+			Printer.Println(printssx.Subtle, "[CANCEL] message ID", uniqueID)
 			return
 		}
 	}
-	bundle.RunCommand(bwMessage.Message.Content)
+	bundle.RunCustoms(newArgs)
+	bundle.RunInlines(newArgs)
+	bundle.RunCommand(newArgs)
+	Printer.Println(printssx.Subtle, "[FINISH] message ID", uniqueID)
 }
 
 // New - Initializes the bot type with a discord session bound to "token"
-func New(token, owner string) (bot *Bot, err error) {
-	bot = &Bot{owner: owner, alive: false, commandMap: make(map[string]Command)}
+func New(token, owner, logPath string) (bot *Bot, err error) {
+	bot = &Bot{owner: owner, logPath: logPath, alive: false,
+		commandMap: make(map[string]Command),
+		inlineMap:  make(map[string]Command),
+		customMap:  make(map[string]Command),
+	}
 
 	session, err := discordgo.New(fmt.Sprintf("Bot %s", token))
 	if err != nil {
@@ -166,6 +262,11 @@ func New(token, owner string) (bot *Bot, err error) {
 	// Increased session client timeout from 20 to 60 seconds
 	session.Client = &http.Client{Timeout: (60 * time.Second)}
 	bot.session = session
+	me, err := session.User("@me")
+	if err != nil {
+		return nil, err
+	}
+	bot.id = me.ID
 	Printer.Println(printssx.Moderate, "Discord bot created")
 	return
 }
@@ -173,6 +274,14 @@ func New(token, owner string) (bot *Bot, err error) {
 // AddCommand - Adds a Command object to the bot's commandMap
 func (bot *Bot) AddCommand(cmdStr string, cmd Command) {
 	bot.commandMap[cmdStr] = cmd
+}
+
+func (bot *Bot) AddInline(cmdStr string, cmd Command) {
+	bot.inlineMap[cmdStr] = cmd
+}
+
+func (bot *Bot) AddCustom(name string, cmd Command) {
+	bot.customMap[name] = cmd
 }
 
 func (bot *Bot) Run() (err error) {
