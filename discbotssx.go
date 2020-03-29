@@ -1,7 +1,10 @@
 package discbotssx
 
 import (
+	"crypto/rand"
+	"encoding/xml"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -38,6 +41,26 @@ func NewOutput(result Result, details string) (output *Output) {
 	return &Output{result: result, details: details}
 }
 
+// Config - Discord config object
+type Config struct {
+	Token   []byte `xml:"token"`
+	Owner   string `xml:"owner"`
+	LogPath string `xml:"logpath"`
+}
+
+func NewConfig(configPath string) (*Config, error) {
+	config := &Config{}
+	data, err := ioutil.ReadFile(configPath)
+	if err != nil {
+		return nil, err
+	}
+	err = xml.Unmarshal(data, config)
+	if err != nil {
+		return nil, err
+	}
+	return config, nil
+}
+
 // Bot - Discord bot object
 type Bot struct {
 	logPath      string
@@ -49,6 +72,10 @@ type Bot struct {
 	customMap    map[string]Command
 	cancelations []Cancel
 	alive        bool
+}
+
+func (bot *Bot) Session() *discordgo.Session {
+	return bot.session
 }
 
 type Bundle struct {
@@ -65,6 +92,10 @@ func (bundle *Bundle) Session() *discordgo.Session {
 
 func (bundle *Bundle) Message() *discordgo.MessageCreate {
 	return bundle.message
+}
+
+func (bundle *Bundle) Owner() string {
+	return bundle.bot.owner
 }
 
 func (bundle *Bundle) CmdIndex() int {
@@ -246,14 +277,16 @@ func (bot *Bot) messageHandler(bwSession *discordgo.Session, bwMessage *discordg
 }
 
 // New - Initializes the bot type with a discord session bound to "token"
-func New(token, owner, logPath string) (bot *Bot, err error) {
+// Token is automatically randomized
+func New(token []byte, owner, logPath string) (bot *Bot, err error) {
 	bot = &Bot{owner: owner, logPath: logPath, alive: false,
 		commandMap: make(map[string]Command),
 		inlineMap:  make(map[string]Command),
 		customMap:  make(map[string]Command),
 	}
 
-	session, err := discordgo.New(fmt.Sprintf("Bot %s", token))
+	session, err := discordgo.New(fmt.Sprintf("Bot %s", string(token)))
+	rand.Read(token)
 	if err != nil {
 		return nil, err
 	}
@@ -269,6 +302,20 @@ func New(token, owner, logPath string) (bot *Bot, err error) {
 	bot.id = me.ID
 	Printer.Println(printssx.Moderate, "Discord bot created")
 	return
+}
+
+// NewWithConfig - Initializes the bot type with the config object (token, owner, logpath)
+func NewWithConfig(config *Config) (bot *Bot, err error) {
+	return New(config.Token, config.Owner, config.LogPath)
+}
+
+// NewWithConfigFile - Initialized the bot object with a config file
+func NewWithConfigFile(configFile string) (bot *Bot, err error) {
+	config, err := NewConfig(configFile)
+	if err != nil {
+		return nil, err
+	}
+	return NewWithConfig(config)
 }
 
 // AddCommand - Adds a Command object to the bot's commandMap
