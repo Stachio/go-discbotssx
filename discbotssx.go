@@ -78,6 +78,10 @@ func (bot *Bot) Session() *discordgo.Session {
 	return bot.session
 }
 
+func (bot *Bot) Alive() bool {
+	return bot.alive
+}
+
 type Bundle struct {
 	bot      *Bot
 	Log      *log.Logger
@@ -333,8 +337,8 @@ func (bot *Bot) AddCustom(name string, cmd Command) {
 
 func (bot *Bot) Run() (err error) {
 	Printer.Println(printssx.Subtle, "Running discord bot...")
-	bot.alive = true
 	err = bot.session.Open()
+	bot.alive = true
 
 	channel, err := bot.session.UserChannelCreate(bot.owner)
 	if err != nil {
